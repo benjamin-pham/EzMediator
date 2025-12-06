@@ -3,9 +3,7 @@ using EzMediator;
 using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
-
-services.AddMediator(typeof(Program).Assembly);
-//services.AddRequestHandlers(typeof(Program).Assembly);
+services.AddCustomMediator(typeof(Program).Assembly);
 services.AddScoped(typeof(IPipelineBehavior<,>), typeof(LoggingPipelineBehavior<,>));
 
 var serviceprovider = services.BuildServiceProvider();

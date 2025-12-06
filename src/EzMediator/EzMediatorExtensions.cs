@@ -5,65 +5,53 @@ namespace EzMediator;
 
 public static class EzMediatorExtensions
 {
-    public static IServiceCollection AddMediator(this IServiceCollection services, params Assembly[] assemblies)
+    public static IServiceCollection AddCustomMediator(this IServiceCollection services, params Assembly[] assemblies)
     {
-        var handlerInterfaceType = typeof(IRequestHandler<,>);
+        services.AddTransient<IMediator, Mediator>();
 
-        Type[] types = assemblies.SelectMany(a => a.GetTypes()).ToArray();
-
-        foreach (var type in types)
+        foreach (var assembly in assemblies)
         {
-            if (type.IsAbstract || type.IsInterface) continue;
-
-            var implementedInterfaces = type.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == handlerInterfaceType);
-
-            foreach (var @interface in implementedInterfaces)
-            {
-                services.AddScoped(@interface, type);
-            }
-        }
-
-        services.AddScoped<IMediator>(serviceProvider =>
-        {
-            return new Mediator(serviceProvider, types);
-        });
+            services.AddRequestHandlers(assembly);
+        }        
 
         return services;
     }
 
-    public static IServiceCollection AddRequestHandlers(this IServiceCollection services, params Assembly[] assemblies)
+    public static IServiceCollection AddRequestHandlers(this IServiceCollection services, Assembly assembly)
     {
-        Type[] types = assemblies.SelectMany(a => a.GetTypes()).ToArray();
+        var handlerType = typeof(IRequestHandler<,>);
 
-        foreach (var type in types)
+        var implementationTypes = assembly.GetTypes()
+            .Where(type =>
+                !type.IsAbstract &&
+                !type.IsInterface &&
+                type.GetInterfaces().Any(i =>
+                    i.IsGenericType &&
+                    i.GetGenericTypeDefinition() == handlerType))
+            .ToList();
+
+        var requestHandlerMap = new Dictionary<Type, Type>();
+
+        foreach (var implementation in implementationTypes)
         {
-            if (type.IsAbstract || type.IsInterface)
-                continue;
-
-            // Đăng ký IRequestHandler<,>
-            var interfaces = type.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRequestHandler<,>));
-
-            foreach (var handlerInterface in interfaces)
+            foreach (var handlerInterface in implementation.GetInterfaces()
+                     .Where(i =>
+                         i.IsGenericType &&
+                         i.GetGenericTypeDefinition() == handlerType))
             {
-                services.AddScoped(handlerInterface, type);
+                var requestType = handlerInterface.GetGenericArguments()[0];
+
+                if (requestHandlerMap.ContainsKey(requestType))
+                {
+                    throw new InvalidOperationException(
+                        $"Request type '{requestType.Name}' có nhiều hơn 1 IRequestHandler: " +
+                        $"{requestHandlerMap[requestType].Name} và {implementation.Name}");
+                }
+
+                requestHandlerMap[requestType] = implementation;
+                services.AddTransient(handlerInterface, implementation);
             }
-
-            //// Đăng ký IRequestPipeline<,>
-            //var pipelines = type.GetInterfaces()
-            //    .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IPipelineBehavior<,>));
-
-            //foreach (var pipelineInterface in pipelines)
-            //{
-            //    services.AddScoped(pipelineInterface, type);
-            //}
         }
-
-        services.AddScoped<IMediator>(serviceProvider =>
-        {
-            return new Mediator(serviceProvider, types);
-        });
 
         return services;
     }
